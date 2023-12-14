@@ -20,4 +20,20 @@ impl Token {
           [from, to, amount, nonce]
         );
     }
+
+    pub fn burn_public(self: Self, context: PublicContext, from: Field, amount: Field, nonce: Field) {
+        let _return_values = context.call_public_function(
+            self.address,
+            compute_selector("burn_public((Field),Field,Field)"),
+            [from, amount, nonce]
+        );
+    }
+
+    pub fn mint_public(self: Self, context: PublicContext, to: Field, amount: Field) {
+        let _transfer_return_values = context.call_public_function(
+          self.address,
+          compute_selector("mint_public((Field),Field)"),
+          [to, amount]
+        );
+    }
 }
