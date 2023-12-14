@@ -107,7 +107,7 @@ contract bridge {
         );
         if (token_id == 1) {
             storage.token1.write(token);
-        } else if (token_id == 2) {
+        } else {
             storage.token2.write(token);
         }
     }
@@ -135,9 +135,39 @@ contract bridge {
 
         let counter = storage.counter.read();
         let swap = storage.swaps.at(counter);
-        swap.write(Swap {token_id: token_id, amount: amount, address: context.msg_sender()});
+        swap.write(Swap {token_id: token_id, amount: amount, address: context.msg_sender(), executed: 0});
 
         storage.counter.write(counter + 1);
+    }
+
+    #[aztec(public)]
+    fn execute_swap_public(
+        swap_id: Field,
+        token_id: Field,
+        amount: Field,
+    ) {
+        let swap = storage.swaps.at(swap_id);
+        let info = swap.read();
+
+        assert(context.msg_sender() == storage.operator.read().address, "You are not the operator!");
+        assert(info.executed == 0, "Swap has been executed!");
+
+        let mut token = AztecAddress::new(0);
+        if (token_id == 1) {
+            token = storage.token1.read();
+        } else {
+            token = storage.token2.read();
+        }
+
+        Token::at(token.address).transfer_public(
+            context,
+            context.this_address(),
+            info.address,
+            amount,
+            0
+        );
+
+        swap.write(Swap {token_id: info.token_id, amount: info.amount, address: info.address, executed: 1});
     }
 
     unconstrained fn get_counter() -> Field {

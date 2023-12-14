@@ -111,15 +111,23 @@ describe('deploy -> create pair -> swap', () => {
         expect(bridgeBalance).toBe(1005);
         expect(userBalance).toBe(0);
 
-        try {
-            console.log(await bridge.methods.get_swap(1).view());
-        } catch (e) {
-            console.log('err 1')
-        }
-        try {
-            console.log(await bridge.methods.get_swap(0).view());
-        } catch (e) {
-            console.log('err 2')
-        }
+        let swapData = await bridge.methods.get_swap(0).view();
+        expect(Number(swapData.amount)).toBe(5);
+        expect(Boolean(swapData.executed)).toBe(false);
+    });
+
+    it('execute a public swap', async () => {
+        bridge = bridge.withWallet(operatorWallet);
+
+        await bridge.methods.execute_swap_public(0, 2, 10).send().wait();
+
+        let bridgeBalance = Number(await usdt.methods.balance_of_public(bridge.address).view());
+        expect(bridgeBalance).toBe(490);
+
+        let userBalance = Number(await usdt.methods.balance_of_public(userWallet.getAddress()).view());
+        expect(userBalance).toBe(10);
+
+        let swapData = await bridge.methods.get_swap(0).view();
+        expect(Boolean(swapData.executed)).toBe(true);
     });
 });
