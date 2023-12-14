@@ -11,8 +11,8 @@ global SWAP_SERIALIZED_LEN: Field = 3;
 
 fn deserializeSwap(fields: [Field; SWAP_SERIALIZED_LEN]) -> Swap {
     Swap {
-        token_id: fields[0] as u120,
-        amount: fields[1] as u120,
+        token_id: fields[0] as Field,
+        amount: fields[1] as Field,
         address: fields[2] as Field,
     }
 }

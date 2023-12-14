@@ -32,7 +32,7 @@ contract bridge {
     }
 
     impl Storage {
-        fn init(context: Context) -> pub Self {
+        fn init(context: Context) -> Self {
             Storage {
                 owner: PublicState::new(
                     context,
@@ -75,16 +75,20 @@ contract bridge {
     }
 
     #[aztec(private)]
-    fn constructor(owner: AztecAddress, operator: AztecAddress) {
+    fn constructor(owner: AztecAddress) {
         let selector = compute_selector("_initialize(Field)");
         context.call_public_function(context.this_address(), selector, [owner.address]);
     }
 
     #[aztec(public)]
-    internal fn _initialize(
-        owner: Field,
-    ) {
+    internal fn _initialize(owner: Field) {
         storage.owner.write(AztecAddress::new(owner));
+    }
+
+    #[aztec(public)]
+    fn set_operator(operator: Field) {
+        assert(context.msg_sender() == storage.owner.read().address, "You are not the owner!");
+        storage.operator.write(AztecAddress::new(operator));
     }
 
     #[aztec(public)]

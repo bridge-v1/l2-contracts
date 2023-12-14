@@ -28,17 +28,22 @@ describe('deploy -> create pair -> swap', () => {
     const pxe = createPXEClient(PXE_URL);
 
     let ownerWallet: AccountWalletWithPrivateKey;
+    let operatorWallet: AccountWalletWithPrivateKey;
     let userWallet: AccountWalletWithPrivateKey;
     let bridge: Contract, wmatic: Contract, usdt: Contract;
 
     it('set owner and user', async () => {
-        [ownerWallet, userWallet] = await getSandboxAccountsWallets(pxe);
+        [ownerWallet, operatorWallet, userWallet] = await getSandboxAccountsWallets(pxe);
     });
 
     it('deploy contracts', async () => {
         bridge = await bridgeContract.deploy(ownerWallet, ownerWallet.getAddress(), ownerWallet.getAddress()).send().deployed();
         wmatic = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
         usdt = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
+    });
+
+    it('set operator', async () => {
+        await bridge.methods.set_operator(operatorWallet.getAddress()).send().wait();
     });
 
     it('mint wmatic and usdt to owner', async () => {
