@@ -1,10 +1,13 @@
-mod types;
+mod swap;
 mod interfaces;
 
 contract bridge {
     use dep::aztec::{
         context::{PrivateContext, PublicContext, Context},
-        state_vars::{public_state::PublicState},
+        state_vars::{
+            map::Map,
+            public_state::PublicState
+        },
         types::type_serialization::field_serialization::{
             FieldSerializationMethods, FIELD_SERIALIZED_LEN,
         },
@@ -13,13 +16,9 @@ contract bridge {
         },
         types::address::{AztecAddress},
         selector::compute_selector,
-        log::emit_unencrypted_log,
     };
-    use dep::safe_math::SafeU120;
+    use crate::swap::{SWAP_SERIALIZED_LEN, Swap, SwapSerializationMethods};
     use crate::interfaces::Token;
-    use crate::types::{
-            safe_u120_serialization::{SafeU120SerializationMethods, SAFE_U120_SERIALIZED_LEN}
-        };
 
     struct Storage {
         owner: PublicState<AztecAddress, AZTEC_ADDRESS_SERIALIZED_LEN>,
@@ -27,6 +26,9 @@ contract bridge {
 
         token1: PublicState<AztecAddress, AZTEC_ADDRESS_SERIALIZED_LEN>,
         token2: PublicState<AztecAddress, AZTEC_ADDRESS_SERIALIZED_LEN>,
+
+        swaps: Map<PublicState<Swap, SWAP_SERIALIZED_LEN>>,
+        counter: PublicState<Field, FIELD_SERIALIZED_LEN>,
     }
 
     impl Storage {
@@ -52,6 +54,22 @@ contract bridge {
                     4,
                     AztecAddressSerializationMethods,
                 ),
+                swaps: Map::new(
+                   context,
+                   5,
+                   |context, slot| {
+                       PublicState::new(
+                           context,
+                           slot,
+                           SwapSerializationMethods,
+                       )
+                   },
+               ),
+               counter: PublicState::new(
+                   context,
+                   6,
+                   FieldSerializationMethods,
+               ),
             }
         }
     }
@@ -110,7 +128,20 @@ contract bridge {
             amount,
             nonce_for_transfer,
         );
-        emit_unencrypted_log(&mut context, 1234567);
+
+        let counter = storage.counter.read();
+        let swap = storage.swaps.at(counter);
+        swap.write(Swap {token_id: token_id, amount: amount, address: context.msg_sender()});
+
+        storage.counter.write(counter + 1);
+    }
+
+    unconstrained fn get_counter() -> Field {
+       storage.counter.read()
+    }
+
+    unconstrained fn get_swap(swap_id: Field) -> Swap {
+       storage.swaps.at(swap_id).read()
     }
 
     unconstrained fn get_storage() -> [AztecAddress; 4] {

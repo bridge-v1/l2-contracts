@@ -57,7 +57,7 @@ describe('deploy -> create pair -> swap', () => {
         let usdtBalance = Number(await usdt.methods.balance_of_public(ownerWallet.getAddress()).view());
 
         const wmaticNonce = await approve(wmatic, ownerWallet, bridge.address, wmaticBalance)
-        const usdtNonce = await approve(usdt, ownerWallet, bridge.address, wmaticBalance)
+        const usdtNonce = await approve(usdt, ownerWallet, bridge.address, usdtBalance)
 
         await bridge.methods.add_token(
             1,
@@ -97,7 +97,7 @@ describe('deploy -> create pair -> swap', () => {
         bridge = bridge.withWallet(userWallet);
 
         let userBalance = Number(await wmatic.methods.balance_of_public(userWallet.getAddress()).view());
-        const wmaticNonce = approve(wmatic, userWallet, bridge.address, userBalance)
+        const wmaticNonce = await approve(wmatic, userWallet, bridge.address, userBalance)
 
         await bridge.methods.swap_public(1, 5, wmaticNonce).send().wait();
 
@@ -105,5 +105,16 @@ describe('deploy -> create pair -> swap', () => {
         userBalance = Number(await wmatic.methods.balance_of_public(userWallet.getAddress()).view());
         expect(bridgeBalance).toBe(1005);
         expect(userBalance).toBe(0);
+
+        try {
+            console.log(await bridge.methods.get_swap(1).view());
+        } catch (e) {
+            console.log('err 1')
+        }
+        try {
+            console.log(await bridge.methods.get_swap(0).view());
+        } catch (e) {
+            console.log('err 2')
+        }
     });
 });
