@@ -5,7 +5,7 @@ import {
     createPXEClient, Fr,
     getSandboxAccountsWallets
 } from '@aztec/aztec.js';
-import { dexContract } from "./fixtures/dex";
+import { bridgeContract } from "./fixtures/bridge";
 
 const { PXE_URL = 'http://localhost:8080' } = process.env;
 
@@ -28,143 +28,82 @@ describe('deploy -> create pair -> swap', () => {
     const pxe = createPXEClient(PXE_URL);
 
     let ownerWallet: AccountWalletWithPrivateKey;
-    let dex: Contract, zkb: Contract, usdt: Contract;
+    let userWallet: AccountWalletWithPrivateKey;
+    let bridge: Contract, wmatic: Contract, usdt: Contract;
 
-    it('set owner', async () => {
-        [ownerWallet] = await getSandboxAccountsWallets(pxe);
+    it('set owner and user', async () => {
+        [ownerWallet, userWallet] = await getSandboxAccountsWallets(pxe);
     });
 
     it('deploy contracts', async () => {
-        dex = await dexContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
-        zkb = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
+        bridge = await bridgeContract.deploy(ownerWallet, ownerWallet.getAddress(), ownerWallet.getAddress()).send().deployed();
+        wmatic = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
         usdt = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
     });
 
-    it('mint zkb and usdt to owner', async () => {
-        await zkb.methods.mint_public(ownerWallet.getAddress(), 10000).send().wait()
+    it('mint wmatic and usdt to owner', async () => {
+        await wmatic.methods.mint_public(ownerWallet.getAddress(), 1000).send().wait()
         await usdt.methods.mint_public(ownerWallet.getAddress(), 500).send().wait()
 
-        const zkbBalance = Number(await zkb.methods.balance_of_public(ownerWallet.getAddress()).view());
+        const wmaticBalance = Number(await wmatic.methods.balance_of_public(ownerWallet.getAddress()).view());
         const usdtBalance = Number(await usdt.methods.balance_of_public(ownerWallet.getAddress()).view());
 
-        expect(zkbBalance).toBe(10000);
+        expect(wmaticBalance).toBe(1000);
         expect(usdtBalance).toBe(500);
     });
 
-    it('generate token transfer proofs, create token pair', async () => {
-        const zkbNonce = Fr.random();
-        let zkbBalance = Number(await zkb.methods.balance_of_public(ownerWallet.getAddress()).view());
-        const zkbTransfer = zkb.methods.transfer_public(
-            ownerWallet.getAddress(),
-            dex.address,
-            zkbBalance,
-            zkbNonce
-        );
-        const zkbMessageHash = await computeAuthWitMessageHash(dex.address, zkbTransfer.request());
-        await ownerWallet.setPublicAuth(zkbMessageHash, true).send().wait();
-
-        const usdtNonce = Fr.random();
+    it('generate token transfer proofs, top up the bridge', async () => {
+        let wmaticBalance = Number(await wmatic.methods.balance_of_public(ownerWallet.getAddress()).view());
         let usdtBalance = Number(await usdt.methods.balance_of_public(ownerWallet.getAddress()).view());
-        const usdtTransfer = usdt.methods.transfer_public(
-            ownerWallet.getAddress(),
-            dex.address,
-            usdtBalance,
-            usdtNonce
-        );
-        const usdtMessageHash = await computeAuthWitMessageHash(dex.address, usdtTransfer.request());
-        await ownerWallet.setPublicAuth(usdtMessageHash, true).send().wait();
 
-        await dex.methods.create(
-            zkb.address,
+        const wmaticNonce = await approve(wmatic, ownerWallet, bridge.address, wmaticBalance)
+        const usdtNonce = await approve(usdt, ownerWallet, bridge.address, wmaticBalance)
+
+        await bridge.methods.add_token(
+            1,
+            wmatic.address,
+            wmaticBalance,
+            wmaticNonce
+        ).send().wait();
+
+        await bridge.methods.add_token(
+            2,
             usdt.address,
-            zkbBalance,
             usdtBalance,
-            zkbNonce,
             usdtNonce
         ).send().wait();
 
-        zkbBalance = Number(await zkb.methods.balance_of_public(ownerWallet.getAddress()).view());
+        wmaticBalance = Number(await wmatic.methods.balance_of_public(ownerWallet.getAddress()).view());
         usdtBalance = Number(await usdt.methods.balance_of_public(ownerWallet.getAddress()).view());
 
-        expect(zkbBalance).toBe(0);
+        expect(wmaticBalance).toBe(0);
         expect(usdtBalance).toBe(0);
 
-        zkbBalance = Number(await zkb.methods.balance_of_public(dex.address).view());
-        usdtBalance = Number(await usdt.methods.balance_of_public(dex.address).view());
+        wmaticBalance = Number(await wmatic.methods.balance_of_public(bridge.address).view());
+        usdtBalance = Number(await usdt.methods.balance_of_public(bridge.address).view());
 
-        expect(zkbBalance).toBe(10000);
+        expect(wmaticBalance).toBe(1000);
         expect(usdtBalance).toBe(500);
     });
 
-    it('mint zkb to owner', async () => {
-        await zkb.methods.mint_public(ownerWallet.getAddress(), 5000).send().wait()
-        const zkbBalance = Number(await zkb.methods.balance_of_public(ownerWallet.getAddress()).view());
-        expect(zkbBalance).toBe(5000);
+    it('mint wmatic to user', async () => {
+        await wmatic.methods.mint_public(userWallet.getAddress(), 5).send().wait()
+        const wmaticBalance = Number(await wmatic.methods.balance_of_public(userWallet.getAddress()).view());
+        expect(wmaticBalance).toBe(5);
     });
 
-    it('swap zkb for usdt', async () => {
-        let zkbContractBalance = Number(await zkb.methods.balance_of_public(dex.address).view());
-        let usdtContractBalance = Number(await usdt.methods.balance_of_public(dex.address).view());
-        let contractReserves = await dex.methods.get_reserves().view();
+    it('create a public swap', async () => {
+        wmatic = wmatic.withWallet(userWallet);
+        bridge = bridge.withWallet(userWallet);
 
-        expect(zkbContractBalance).toBe(10000);
-        expect(Number(contractReserves[0])).toBe(10000);
-        expect(usdtContractBalance).toBe(500);
-        expect(Number(contractReserves[1])).toBe(500);
+        let userBalance = Number(await wmatic.methods.balance_of_public(userWallet.getAddress()).view());
+        const wmaticNonce = approve(wmatic, userWallet, bridge.address, userBalance)
 
-        let zkbOwnerBalance = Number(await zkb.methods.balance_of_public(ownerWallet.getAddress()).view());
-        const nonce = await approve(zkb, ownerWallet, dex.address, zkbOwnerBalance);
-        await dex.methods.swap(
-            zkb.address,
-            zkbOwnerBalance,
-            nonce
-        ).send().wait();
+        await bridge.methods.swap_public(1, 5, wmaticNonce).send().wait();
 
-        zkbContractBalance = Number(await zkb.methods.balance_of_public(dex.address).view());
-        usdtContractBalance = Number(await usdt.methods.balance_of_public(dex.address).view());
-        contractReserves = await dex.methods.get_reserves().view();
-
-        expect(zkbContractBalance).toBe(15000);
-        expect(Number(contractReserves[0])).toBe(15000);
-        expect(usdtContractBalance).toBe(333);
-        expect(Number(contractReserves[1])).toBe(333);
-
-        zkbOwnerBalance = Number(await zkb.methods.balance_of_public(ownerWallet.getAddress()).view());
-        let usdtOwnerBalance = Number(await usdt.methods.balance_of_public(ownerWallet.getAddress()).view());
-        expect(zkbOwnerBalance).toBe(0);
-        expect(usdtOwnerBalance).toBe(167);
-    });
-
-    it('swap usdt for zkb', async () => {
-        let zkbContractBalance = Number(await zkb.methods.balance_of_public(dex.address).view());
-        let usdtContractBalance = Number(await usdt.methods.balance_of_public(dex.address).view());
-        let contractReserves = await dex.methods.get_reserves().view();
-
-        expect(zkbContractBalance).toBe(15000);
-        expect(Number(contractReserves[0])).toBe(15000);
-        expect(usdtContractBalance).toBe(333);
-        expect(Number(contractReserves[1])).toBe(333);
-
-        let usdtOwnerBalance = Number(await usdt.methods.balance_of_public(ownerWallet.getAddress()).view());
-        const nonce = await approve(usdt, ownerWallet, dex.address, usdtOwnerBalance);
-        await dex.methods.swap(
-            usdt.address,
-            usdtOwnerBalance,
-            nonce
-        ).send().wait();
-
-        zkbContractBalance = Number(await zkb.methods.balance_of_public(dex.address).view());
-        usdtContractBalance = Number(await usdt.methods.balance_of_public(dex.address).view());
-        contractReserves = await dex.methods.get_reserves().view();
-
-        expect(zkbContractBalance).toBe(10000);
-        expect(Number(contractReserves[0])).toBe(10000);
-        expect(usdtContractBalance).toBe(500);
-        expect(Number(contractReserves[1])).toBe(500);
-
-        let zkbOwnerBalance = Number(await zkb.methods.balance_of_public(ownerWallet.getAddress()).view());
-        usdtOwnerBalance = Number(await usdt.methods.balance_of_public(ownerWallet.getAddress()).view());
-        expect(usdtOwnerBalance).toBe(0);
-        expect(zkbOwnerBalance).toBe(5000);
+        let bridgeBalance = Number(await wmatic.methods.balance_of_public(bridge.address).view());
+        userBalance = Number(await wmatic.methods.balance_of_public(userWallet.getAddress()).view());
+        expect(bridgeBalance).toBe(1005);
+        expect(userBalance).toBe(0);
     });
 });

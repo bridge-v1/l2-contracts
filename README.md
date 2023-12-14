@@ -12,7 +12,7 @@
 
 #### To build smart contract:
 
-`aztec-cli compile --typescript ./../../test/fixtures contracts/dex`
+`aztec-cli compile --typescript ./../../test/fixtures contracts/bridge`
 
 #### To test smart contract:
 

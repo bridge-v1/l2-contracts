@@ -5,11 +5,11 @@
   "license": "MIT",
   "private": true,
   "dependencies": {
-    "@aztec/aztec.js": "^0.12.0",
-    "@aztec/foundation": "^0.12.0",
-    "@aztec/l1-artifacts": "^0.12.0",
-    "@aztec/noir-contracts": "^0.12.0",
-    "@aztec/types": "^0.12.0",
+    "@aztec/aztec.js": "^0.16.7",
+    "@aztec/foundation": "^0.16.7",
+    "@aztec/l1-artifacts": "^0.16.7",
+    "@aztec/noir-contracts": "^0.16.7",
+    "@aztec/types": "^0.16.7",
     "@types/node": "^20.8.2",
     "viem": "^1.17.1"
   },
