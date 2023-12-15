@@ -99,6 +99,82 @@ contract bridge {
     }
 
     #[aztec(public)]
+    internal fn _save_swap(
+        in_token_id: Field,
+        out_token_id: Field,
+        in_token_amount: Field,
+        l2_secret_hash: Field
+    ) {
+        let counter = storage.counter.read();
+        let swap = storage.swaps.at(counter);
+
+        swap.write(Swap {
+            is_private: 1,
+            in_token_id: in_token_id,
+            out_token_id: out_token_id,
+            in_token_amount: in_token_amount,
+            out_token_amount: 0,
+            l2_address: 0,
+            l2_secret_hash: l2_secret_hash,
+            is_executed: 0
+        });
+
+        storage.counter.write(counter + 1);
+    }
+
+    #[aztec(public)]
+    internal fn _update_swap(
+        swap_id: Field,
+        out_token_amount: Field,
+    ) {
+        let swap = storage.swaps.at(swap_id);
+        let info = swap.read();
+
+        swap.write(Swap {
+            is_private: 1,
+            in_token_id: info.in_token_id,
+            out_token_id: info.out_token_id,
+            in_token_amount: info.in_token_amount,
+            out_token_amount: out_token_amount,
+            l2_address: 0,
+            l2_secret_hash: info.l2_secret_hash,
+            is_executed: 1
+        });
+    }
+
+    #[aztec(public)]
+    internal fn _assert_token_is_same(in_token_id: Field, in_token_address: Field) {
+        let mut token = AztecAddress::new(0);
+        if (in_token_id == 1) {
+            token = storage.token1.read();
+        } else {
+            token = storage.token2.read();
+        }
+
+        assert(token.address == in_token_address, "Token is not same!");
+    }
+
+    #[aztec(public)]
+    internal fn _assert_swap_params(swap_id: Field, secret_hash_for_redeeming: Field) {
+        let swap = storage.swaps.at(swap_id);
+        let info = swap.read();
+
+        assert(info.is_executed == 0, "Swap has been executed!");
+        assert(info.is_private == 1, "Swap is not private!");
+        assert(info.l2_secret_hash == secret_hash_for_redeeming, "Secret hash is not same!");
+    }
+
+    #[aztec(public)]
+    internal fn _assert_operator(address: Field) {
+       assert(address == storage.operator.read().address, "You are not the operator!");
+    }
+
+    #[aztec(public)]
+    internal fn _mint_private(out_token_address: Field, amount: Field, secret_hash: Field) {
+        Token::at(out_token_address).mint_private(context, amount, secret_hash);
+    }
+
+    #[aztec(public)]
     fn swap_public(
         in_token_id: Field,
         out_token_id: Field,
@@ -136,10 +212,32 @@ contract bridge {
         storage.counter.write(counter + 1);
     }
 
+    #[aztec(private)]
+    fn swap_private(
+        in_token_id: Field,
+        in_token_address: Field,
+        out_token_id: Field,
+        in_token_amount: Field,
+        nonce_for_burn: Field,
+        secret_hash_for_redeeming: Field
+    ) {
+        let mut selector = compute_selector("_assert_token_is_same(Field,Field)");
+        context.call_public_function(context.this_address(), selector, [in_token_id, in_token_address]);
+
+        Token::at(in_token_address).burn(
+            &mut context,
+            context.msg_sender(),
+            in_token_amount,
+            nonce_for_burn,
+        );
+
+        selector = compute_selector("_save_swap(Field,Field,Field,Field)");
+        context.call_public_function(context.this_address(), selector, [in_token_id, out_token_id, in_token_amount, secret_hash_for_redeeming]);
+    }
+
     #[aztec(public)]
     fn execute_swap_public(
         swap_id: Field,
-        out_token_id: Field,
         out_token_amount: Field,
     ) {
         let swap = storage.swaps.at(swap_id);
@@ -150,7 +248,7 @@ contract bridge {
         assert(info.is_private == 0, "Swap is private!");
 
         let mut token = AztecAddress::new(0);
-        if (out_token_id == 1) {
+        if (info.out_token_id == 1) {
             token = storage.token1.read();
         } else {
             token = storage.token2.read();
@@ -163,6 +261,40 @@ contract bridge {
         );
 
         swap.write(Swap {
+            is_private: 0,
+            in_token_id: info.in_token_id,
+            out_token_id: info.out_token_id,
+            in_token_amount: info.in_token_amount,
+            out_token_amount: out_token_amount,
+            l2_address: info.l2_address,
+            l2_secret_hash: 0,
+            is_executed: 1
+        });
+    }
+
+    #[aztec(public)]
+    fn execute_swap_private(
+        swap_id: Field,
+        out_token_amount: Field,
+    ) {
+        assert(context.msg_sender() == storage.operator.read().address, "You are not the operator!");
+
+        let swap = storage.swaps.at(swap_id);
+        let info = swap.read();
+
+        assert(info.is_executed == 0, "Swap has been executed!");
+        assert(info.is_private == 1, "Swap is not private!");
+
+        let mut token = AztecAddress::new(0);
+        if (info.out_token_id == 1) {
+            token = storage.token1.read();
+        } else {
+            token = storage.token2.read();
+        }
+
+        Token::at(token.address).mint_private(context, out_token_amount, info.l2_secret_hash);
+
+        swap.write(Swap {
             is_private: info.is_private,
             in_token_id: info.in_token_id,
             out_token_id: info.out_token_id,
@@ -172,36 +304,6 @@ contract bridge {
             l2_secret_hash: info.l2_secret_hash,
             is_executed: 1
         });
-    }
-
-    #[aztec(public)]
-    fn swap_private(
-        token_id: Field,
-        amount: Field,
-        nonce_for_transfer: Field,
-        secret_hash_for_redeeming: Field
-    ) {
-        let mut token = AztecAddress::new(0);
-        if (token_id == 1) {
-            token = storage.token1.read();
-        } else {
-            token = storage.token2.read();
-        }
-
-        // TODO: burn instead of transfer
-        // Token::at(token.address).transfer(
-        //     context,
-        //     context.msg_sender(),
-        //     context.this_address(),
-        //     amount,
-        //     nonce_for_transfer,
-        // );
-
-        let counter = storage.counter.read();
-        let swap = storage.swaps.at(counter);
-        // swap.write(Swap {token_id: token_id, amount: amount, address: secret_hash_for_redeeming, executed: 0});
-
-        storage.counter.write(counter + 1);
     }
 
     unconstrained fn get_counter() -> Field {

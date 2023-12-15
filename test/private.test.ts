@@ -1,9 +1,9 @@
 import { TokenContract } from '@aztec/noir-contracts/types';
 import {
-    AccountWalletWithPrivateKey, AztecAddress, computeAuthWitMessageHash,
+    AccountWalletWithPrivateKey, AztecAddress, computeAuthWitMessageHash, computeMessageSecretHash,
     Contract,
-    createPXEClient, Fr,
-    getSandboxAccountsWallets
+    createPXEClient, ExtendedNote, Fr,
+    getSandboxAccountsWallets, Note
 } from '@aztec/aztec.js';
 import { bridgeContract } from "./fixtures/bridge";
 
@@ -17,6 +17,7 @@ describe('deploy -> create pair -> swap', () => {
     let operatorWallet: AccountWalletWithPrivateKey;
     let userWallet: AccountWalletWithPrivateKey;
     let bridge: Contract, wmatic: Contract, usdt: Contract;
+    let secret: Fr, secretHash: Fr;
 
     it('set owner and user', async () => {
         [ownerWallet, operatorWallet, userWallet] = await getSandboxAccountsWallets(pxe);
@@ -36,38 +37,62 @@ describe('deploy -> create pair -> swap', () => {
         await usdt.methods.set_minter(bridge.address, true).send().wait();
     });
 
-    it('mint WMATIC to user\'s wallet publicly', async () => {
-        await wmatic.methods.mint_public(userWallet.getAddress(), 100).send().wait()
-        const wmaticBalance = Number(await wmatic.methods.balance_of_public(userWallet.getAddress()).view());
+    it('mint WMATIC to user\'s wallet privately', async () => {
+        const secret = Fr.random();
+        const secretHash = computeMessageSecretHash(secret);
+
+        let receipt = await wmatic.methods.mint_private(100, secretHash).send().wait();
+
+        const pendingShieldsStorageSlot = new Fr(5);
+        const note = new Note([new Fr(100), secretHash]);
+        await pxe.addNote(new ExtendedNote(note, userWallet.getAddress(), wmatic.address, pendingShieldsStorageSlot, receipt.txHash));
+
+        wmatic = wmatic.withWallet(userWallet);
+
+        await wmatic.methods.redeem_shield(userWallet.getAddress(), 100, secret).send().wait();
+
+        const wmaticBalance = Number(await wmatic.methods.balance_of_private(userWallet.getAddress()).view());
         expect(wmaticBalance).toBe(100);
     });
 
-    it('create a swap publicly', async () => {
+    it('create a swap privately', async () => {
         wmatic = wmatic.withWallet(userWallet);
         bridge = bridge.withWallet(userWallet);
+
+        secret = Fr.random();
+        secretHash = computeMessageSecretHash(secret);
 
         const burnNonce = Fr.random();
         const burnMessageHash = computeAuthWitMessageHash(
             bridge.address,
-            wmatic.methods.burn_public(userWallet.getAddress(), 5, burnNonce).request(),
+            wmatic.methods.burn(userWallet.getAddress(), 5, burnNonce).request(),
         );
-        await userWallet.setPublicAuth(burnMessageHash, true).send().wait();
-        await bridge.methods.swap_public(1, 2, 5, burnNonce).send().wait();
+        const witness = await userWallet.createAuthWitness(burnMessageHash);
+        await userWallet.addAuthWitness(witness);
 
-        let userBalance = Number(await wmatic.methods.balance_of_public(userWallet.getAddress()).view());
+        await bridge.methods.swap_private(1, wmatic.address, 2, 5, burnNonce, secretHash).send().wait();
+
+        let userBalance = Number(await wmatic.methods.balance_of_private(userWallet.getAddress()).view());
         expect(userBalance).toBe(95);
 
         let swapData = await bridge.methods.get_swap(0).view();
         expect(Number(swapData.in_token_amount)).toBe(5);
+        expect(Boolean(swapData.is_private)).toBe(true);
         expect(Boolean(swapData.is_executed)).toBe(false);
     });
 
-    it('execute a public swap', async () => {
+    it('execute a private swap', async () => {
         bridge = bridge.withWallet(operatorWallet);
 
-        await bridge.methods.execute_swap_public(0, 10).send().wait();
+        let receipt = await bridge.methods.execute_swap_private(0, 10).send().wait();
 
-        let userBalance = Number(await usdt.methods.balance_of_public(userWallet.getAddress()).view());
+        const pendingShieldsStorageSlot = new Fr(5);
+        const note = new Note([new Fr(10), secretHash]);
+        await pxe.addNote(new ExtendedNote(note, userWallet.getAddress(), usdt.address, pendingShieldsStorageSlot, receipt.txHash));
+
+        await usdt.methods.redeem_shield(userWallet.getAddress(), 10, secret).send().wait();
+
+        let userBalance = Number(await usdt.withWallet(userWallet).methods.balance_of_private(userWallet.getAddress()).view());
         expect(userBalance).toBe(10);
 
         let swapData = await bridge.methods.get_swap(0).view();
