@@ -1,6 +1,6 @@
-# aztec-dex
+# l2-contracts
 
-### Aztec simplest implementation of an AMM DEX
+### Simple bridge for swapping tokens from Aztec L2 on any L1 
 
 #### Prerequisites:
 
@@ -12,7 +12,7 @@
 
 #### To build smart contract:
 
-`aztec-cli compile --typescript ./../../test/fixtures contracts/bridge`
+`sudo aztec-cli compile --typescript ./../../test/fixtures contracts/bridge`
 
 #### To test smart contract:
 
