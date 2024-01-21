@@ -8,27 +8,25 @@ contract bridge {
             map::Map,
             public_state::PublicState
         },
-        types::type_serialization::field_serialization::{
-            FieldSerializationMethods, FIELD_SERIALIZED_LEN,
+        types::type_serialization::field_serialization::FieldSerializationMethods,
+        types::type_serialization::address_serialization::AddressSerializationMethods,
+        protocol_types::{
+            address::{AztecAddress},
+            abis::function_selector::FunctionSelector
         },
-        types::type_serialization::aztec_address_serialization::{
-            AztecAddressSerializationMethods, AZTEC_ADDRESS_SERIALIZED_LEN
-        },
-        types::address::{AztecAddress},
-        selector::compute_selector,
     };
     use crate::swap::{SWAP_SERIALIZED_LEN, Swap, SwapSerializationMethods};
     use crate::interfaces::Token;
 
     struct Storage {
-        owner: PublicState<AztecAddress, AZTEC_ADDRESS_SERIALIZED_LEN>,
-        operator: PublicState<AztecAddress, AZTEC_ADDRESS_SERIALIZED_LEN>,
+        owner: PublicState<AztecAddress, 1>,
+        operator: PublicState<AztecAddress, 1>,
 
-        token1: PublicState<AztecAddress, AZTEC_ADDRESS_SERIALIZED_LEN>,
-        token2: PublicState<AztecAddress, AZTEC_ADDRESS_SERIALIZED_LEN>,
+        token1: PublicState<AztecAddress, 1>,
+        token2: PublicState<AztecAddress, 1>,
 
-        swaps: Map<PublicState<Swap, SWAP_SERIALIZED_LEN>>,
-        counter: PublicState<Field, FIELD_SERIALIZED_LEN>,
+        swaps: Map<Field, PublicState<Swap, SWAP_SERIALIZED_LEN>>,
+        counter: PublicState<Field, 1>,
     }
 
     impl Storage {
@@ -37,22 +35,22 @@ contract bridge {
                 owner: PublicState::new(
                     context,
                     1,
-                    AztecAddressSerializationMethods,
+                    AddressSerializationMethods,
                 ),
                 operator: PublicState::new(
                     context,
                     2,
-                    AztecAddressSerializationMethods,
+                    AddressSerializationMethods,
                 ),
                 token1: PublicState::new(
                     context,
                     3,
-                    AztecAddressSerializationMethods,
+                    AddressSerializationMethods,
                 ),
                 token2: PublicState::new(
                     context,
                     4,
-                    AztecAddressSerializationMethods,
+                    AddressSerializationMethods,
                 ),
                 swaps: Map::new(
                    context,
@@ -76,24 +74,24 @@ contract bridge {
 
     #[aztec(private)]
     fn constructor(owner: AztecAddress) {
-        let selector = compute_selector("_initialize(Field)");
-        context.call_public_function(context.this_address(), selector, [owner.address]);
+        let selector = FunctionSelector::from_signature("_initialize(Field)");
+        context.call_public_function(context.this_address(), selector, [owner.to_field()]);
     }
 
     #[aztec(public)]
     internal fn _initialize(owner: Field) {
-        storage.owner.write(AztecAddress::new(owner));
+        storage.owner.write(AztecAddress::from_field(owner));
     }
 
     #[aztec(public)]
-    fn set_operator(operator: Field) {
-        assert(context.msg_sender() == storage.owner.read().address, "You are not the owner!");
-        storage.operator.write(AztecAddress::new(operator));
+    fn set_operator(operator: AztecAddress) {
+        assert(context.msg_sender() == storage.owner.read(), "You are not the owner!");
+        storage.operator.write(operator);
     }
 
     #[aztec(public)]
     fn set_tokens(token1: AztecAddress, token2: AztecAddress) {
-        assert(context.msg_sender() == storage.owner.read().address, "You are not the owner!");
+        assert(context.msg_sender() == storage.owner.read(), "You are not the owner!");
         storage.token1.write(token1);
         storage.token2.write(token2);
     }
@@ -144,14 +142,14 @@ contract bridge {
 
     #[aztec(public)]
     internal fn _assert_token_is_same(in_token_id: Field, in_token_address: Field) {
-        let mut token = AztecAddress::new(0);
+        let mut token = AztecAddress::from_field(0);
         if (in_token_id == 1) {
             token = storage.token1.read();
         } else {
             token = storage.token2.read();
         }
 
-        assert(token.address == in_token_address, "Token is not same!");
+        assert(token == AztecAddress::from_field(in_token_address), "Token is not same!");
     }
 
     #[aztec(public)]
@@ -165,12 +163,12 @@ contract bridge {
     }
 
     #[aztec(public)]
-    internal fn _assert_operator(address: Field) {
-       assert(address == storage.operator.read().address, "You are not the operator!");
+    internal fn _assert_operator(address: AztecAddress) {
+       assert(address == storage.operator.read(), "You are not the operator!");
     }
 
     #[aztec(public)]
-    internal fn _mint_private(out_token_address: Field, amount: Field, secret_hash: Field) {
+    internal fn _mint_private(out_token_address: AztecAddress, amount: Field, secret_hash: Field) {
         Token::at(out_token_address).mint_private(context, amount, secret_hash);
     }
 
@@ -181,16 +179,16 @@ contract bridge {
         in_token_amount: Field,
         nonce_for_burn: Field
     ) {
-        let mut token = AztecAddress::new(0);
+        let mut token = AztecAddress::from_field(0);
         if (in_token_id == 1) {
             token = storage.token1.read();
         } else {
             token = storage.token2.read();
         }
 
-        Token::at(token.address).burn_public(
+        Token::at(token).burn_public(
             context,
-            context.msg_sender(),
+            context.msg_sender().to_field(),
             in_token_amount,
             nonce_for_burn,
         );
@@ -204,7 +202,7 @@ contract bridge {
             out_token_id: out_token_id,
             in_token_amount: in_token_amount,
             out_token_amount: 0,
-            l2_address: context.msg_sender(),
+            l2_address: context.msg_sender().to_field(),
             l2_secret_hash: 0,
             is_executed: 0
         });
@@ -215,23 +213,23 @@ contract bridge {
     #[aztec(private)]
     fn swap_private(
         in_token_id: Field,
-        in_token_address: Field,
+        in_token_address: AztecAddress,
         out_token_id: Field,
         in_token_amount: Field,
         nonce_for_burn: Field,
         secret_hash_for_redeeming: Field
-    ) {
-        let mut selector = compute_selector("_assert_token_is_same(Field,Field)");
-        context.call_public_function(context.this_address(), selector, [in_token_id, in_token_address]);
+    ) -> pub Field {
+        let mut selector = FunctionSelector::from_signature("_assert_token_is_same(Field,Field)");
+        context.call_public_function(context.this_address(), selector, [in_token_id, in_token_address.to_field()]);
 
         Token::at(in_token_address).burn(
             &mut context,
-            context.msg_sender(),
+            context.msg_sender().to_field(),
             in_token_amount,
             nonce_for_burn,
         );
 
-        selector = compute_selector("_save_swap(Field,Field,Field,Field)");
+        selector = FunctionSelector::from_signature("_save_swap(Field,Field,Field,Field)");
         context.call_public_function(context.this_address(), selector, [in_token_id, out_token_id, in_token_amount, secret_hash_for_redeeming]);
     }
 
@@ -243,18 +241,18 @@ contract bridge {
         let swap = storage.swaps.at(swap_id);
         let info = swap.read();
 
-        assert(context.msg_sender() == storage.operator.read().address, "You are not the operator!");
+        assert(context.msg_sender() == storage.operator.read(), "You are not the operator!");
         assert(info.is_executed == 0, "Swap has been executed!");
         assert(info.is_private == 0, "Swap is private!");
 
-        let mut token = AztecAddress::new(0);
+        let mut token = AztecAddress::from_field(0);
         if (info.out_token_id == 1) {
             token = storage.token1.read();
         } else {
             token = storage.token2.read();
         }
 
-        Token::at(token.address).mint_public(
+        Token::at(token).mint_public(
             context,
             info.l2_address,
             out_token_amount
@@ -277,7 +275,7 @@ contract bridge {
         swap_id: Field,
         out_token_amount: Field,
     ) {
-        assert(context.msg_sender() == storage.operator.read().address, "You are not the operator!");
+        assert(context.msg_sender() == storage.operator.read(), "You are not the operator!");
 
         let swap = storage.swaps.at(swap_id);
         let info = swap.read();
@@ -285,14 +283,14 @@ contract bridge {
         assert(info.is_executed == 0, "Swap has been executed!");
         assert(info.is_private == 1, "Swap is not private!");
 
-        let mut token = AztecAddress::new(0);
+        let mut token = AztecAddress::from_field(0);
         if (info.out_token_id == 1) {
             token = storage.token1.read();
         } else {
             token = storage.token2.read();
         }
 
-        Token::at(token.address).mint_private(context, out_token_amount, info.l2_secret_hash);
+        Token::at(token).mint_private(context, out_token_amount, info.l2_secret_hash);
 
         swap.write(Swap {
             is_private: info.is_private,
@@ -306,23 +304,24 @@ contract bridge {
         });
     }
 
-    unconstrained fn get_counter() -> Field {
+    unconstrained fn get_counter() -> pub Field {
        storage.counter.read()
     }
 
-    unconstrained fn get_swap(swap_id: Field) -> Swap {
+    unconstrained fn get_swap(swap_id: Field) -> pub Swap {
        storage.swaps.at(swap_id).read()
     }
 
-    unconstrained fn get_storage() -> [AztecAddress; 4] {
+    unconstrained fn get_storage() -> pub [AztecAddress; 4] {
        [storage.owner.read(), storage.operator.read(), storage.token1.read(), storage.token2.read()]
     }
 
     unconstrained fn compute_note_hash_and_nullifier(
-        contract_address: Field,
-        nonce: Field,
-        storage_slot: Field,
-        serialized_note: [Field; 0]) -> [Field; 4] {
+            contract_address: AztecAddress,
+            nonce: Field,
+            storage_slot: Field,
+            serialized_note: [Field; 3]
+    ) -> pub [Field; 4] {
         [0, 0, 0, 0]
     }
 }

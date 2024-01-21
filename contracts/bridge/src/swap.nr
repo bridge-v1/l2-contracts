@@ -1,5 +1,5 @@
 use dep::aztec::types::type_serialization::TypeSerializationInterface;
-use dep::aztec::types::address::AztecAddress;
+use dep::aztec::protocol_types::address::AztecAddress;
 
 struct Swap {
     is_private: Field,

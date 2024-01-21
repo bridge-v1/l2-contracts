@@ -8,11 +8,13 @@
 
 `Docker and Docker Compose (Docker Desktop under WSL2 on windows)`
 
-`Aztec Sandbox/cli: /bin/bash -c "$(curl -fsSL 'https://sandbox.aztec.network')"`
+`Aztec Sandbox/cli: bash -i <(curl -s install.aztec.network)"`
 
 #### To build smart contract:
 
-`sudo aztec-cli compile --typescript ./../../test/fixtures contracts/bridge`
+`cd contracts/bridge`
+`aztec-nargo compile --silence-warnings`
+`aztec-cli codegen target -o ../../test/fixtures --ts`
 
 #### To test smart contract:
 

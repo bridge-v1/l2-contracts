@@ -1,10 +1,12 @@
-import { TokenContract } from '@aztec/noir-contracts/types';
+// @ts-ignore
+import { TokenContract } from "@aztec/noir-contracts/Token";
 import {
     AccountWalletWithPrivateKey, AztecAddress, computeAuthWitMessageHash,
     Contract,
     createPXEClient, Fr,
-    getSandboxAccountsWallets
 } from '@aztec/aztec.js';
+// @ts-ignore
+import { getInitialTestAccountsWallets } from "@aztec/accounts/testing";
 import { bridgeContract } from "./fixtures/bridge";
 
 const { PXE_URL = 'http://localhost:8080' } = process.env;
@@ -19,13 +21,13 @@ describe('deploy -> create pair -> swap', () => {
     let bridge: Contract, wmatic: Contract, usdt: Contract;
 
     it('set owner and user', async () => {
-        [ownerWallet, operatorWallet, userWallet] = await getSandboxAccountsWallets(pxe);
+        [ownerWallet, operatorWallet, userWallet] = await getInitialTestAccountsWallets(pxe);
     });
 
     it('deploy contracts', async () => {
-        bridge = await bridgeContract.deploy(ownerWallet, ownerWallet.getAddress(), ownerWallet.getAddress()).send().deployed();
-        wmatic = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
-        usdt = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
+        bridge = await bridgeContract.deploy(ownerWallet, ownerWallet.getAddress()).send().deployed();
+        wmatic = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress(), "WMATIC", "WMATIC", 0).send().deployed();
+        usdt = await TokenContract.deploy(ownerWallet, ownerWallet.getAddress(), "USDT", "USDT", 0).send().deployed();
     });
 
     it('set operator and tokens, make bridge allowed to mint', async () => {
